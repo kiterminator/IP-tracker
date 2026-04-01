@@ -2,54 +2,74 @@
 // SUPABASE CONFIG
 // ═══════════════════════════════════════════════════
 
-// ⬇️⬇️⬇️ REPLACE THESE TWO VALUES WITH YOUR OWN ⬇️⬇️⬇️
-const SUPABASE_URL = 'https://qlbfrhhomndgifzflvrn.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsYmZyaGhvbW5kZ2lmemZsdnJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5OTU0MjUsImV4cCI6MjA5MDU3MTQyNX0.WDB6m4hPb5tieAX4_ODyaATxld_xmqHW_Xqmqv4qmXo';
-// ⬆️⬆️⬆️ REPLACE THESE TWO VALUES WITH YOUR OWN ⬆️⬆️⬆️
+// ⬇️ PASTE YOUR REAL VALUES HERE ⬇️
+const SUPABASE_URL = 'https://qjoyjmjtkcblwfpggzwq.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqb3lqbWp0a2NibHdmcGdnendxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMzM0MTMsImV4cCI6MjA4OTgwOTQxM30.C_5BGwZzvs5gLBdz7H-vvDhsHUV83oy2ypSG3jBK6oI';
+// ⬆️ PASTE YOUR REAL VALUES HERE ⬆️
 
-// Validate config
-if (SUPABASE_URL.includes('YOUR_PROJECT_ID')) {
+// ── Validation ──────────────────────────────────
+if (
+  SUPABASE_URL.includes('YOUR_PROJECT_ID') ||
+  SUPABASE_ANON_KEY.includes('YOUR_ANON_KEY')
+) {
   document.body.innerHTML = `
-    <div style="padding:40px;color:#ff4757;font-family:monospace;font-size:18px;background:#111;min-height:100vh">
-      <h1>⚠️ CONFIG ERROR</h1>
-      <p>You need to edit <strong>js/config.js</strong> and replace the Supabase URL and Key with your real values.</p>
-      <p style="margin-top:20px;color:#888">
-        Find them at: Supabase Dashboard → Settings → API<br>
-        • Project URL → copy into SUPABASE_URL<br>
-        • anon public key → copy into SUPABASE_ANON_KEY
+    <div style="
+      padding: 60px 40px;
+      color: #ff4757;
+      font-family: 'Consolas', monospace;
+      font-size: 16px;
+      background: #111;
+      min-height: 100vh;
+      line-height: 1.8;
+    ">
+      <h1 style="font-size: 28px; margin-bottom: 20px;">⚠️ SUPABASE NOT CONFIGURED</h1>
+      <p>Edit the file <strong>js/config.js</strong> and replace the placeholder values:</p>
+      <pre style="
+        background: #1a1a2e;
+        padding: 20px;
+        border-radius: 8px;
+        margin: 20px 0;
+        color: #00d4ff;
+        overflow-x: auto;
+      ">
+const SUPABASE_URL = 'https://abcdefg.supabase.co';      ← Your project URL
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUz...';           ← Your anon key
+      </pre>
+      <p style="color: #888;">
+        Find these at:<br>
+        Supabase Dashboard → Settings → API<br>
+        • <strong>Project URL</strong> → SUPABASE_URL<br>
+        • <strong>anon public</strong> key → SUPABASE_ANON_KEY
       </p>
     </div>`;
-  throw new Error('Supabase not configured');
+  throw new Error('Supabase not configured — edit js/config.js');
 }
 
+// ── Create Supabase Client ──────────────────────
 let _supabaseClient = null;
 
 function getSupabase() {
   if (!_supabaseClient) {
     if (typeof supabase === 'undefined' || !supabase.createClient) {
-      console.error('❌ Supabase JS library not loaded! Check your internet connection.');
-      alert('Error: Supabase library failed to load. Check your internet connection and refresh.');
-      throw new Error('Supabase library not loaded');
+      const msg = 'Supabase JS library not loaded. Check internet connection.';
+      console.error('❌ ' + msg);
+      alert('Error: ' + msg);
+      throw new Error(msg);
     }
     _supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    console.log('✅ Supabase client initialized:', SUPABASE_URL);
+    console.log('✅ Supabase client created:', SUPABASE_URL);
   }
   return _supabaseClient;
 }
 
-// Generate short unique IDs
+// ── Helpers ─────────────────────────────────────
 function generateId(length = 12) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
   const array = new Uint8Array(length);
   crypto.getRandomValues(array);
-  for (let i = 0; i < length; i++) {
-    result += chars[array[i] % chars.length];
-  }
-  return result;
+  return Array.from(array, b => chars[b % chars.length]).join('');
 }
 
-// Time ago helper
 function timeAgo(dateStr) {
   if (!dateStr) return 'Never';
   const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
@@ -60,10 +80,11 @@ function timeAgo(dateStr) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-// Escape HTML
 function escHtml(str) {
   if (!str) return '';
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
 }
+
+console.log('✅ config.js loaded');
