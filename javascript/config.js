@@ -9,8 +9,8 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 // ── Validation ──────────────────────────────────
 if (
-  SUPABASE_URL.includes('YOUR_PROJECT_ID') ||
-  SUPABASE_ANON_KEY.includes('YOUR_ANON_KEY')
+  SUPABASE_URL.includes('https://qlbfrhhomndgifzflvrn.supabase.co') ||
+  SUPABASE_ANON_KEY.includes('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsYmZyaGhvbW5kZ2lmemZsdnJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5OTU0MjUsImV4cCI6MjA5MDU3MTQyNX0.WDB6m4hPb5tieAX4_ODyaATxld_xmqHW_Xqmqv4qmXo')
 ) {
   document.body.innerHTML = `
     <div style="
