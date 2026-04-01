@@ -4,18 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>📡 IP Location Tracker</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="./css/style.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
   <div class="app-container">
-    <!-- ── Header ──────────────────────────────── -->
+    <!-- Header -->
     <header class="header">
       <h1><span class="icon">📡</span> IP Location Tracker</h1>
       <span class="badge">LIVE DASHBOARD</span>
     </header>
 
-    <!-- ── Sidebar ─────────────────────────────── -->
+    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-section">
         <h3>➕ New Tracking Session</h3>
@@ -37,7 +37,7 @@
       </div>
     </aside>
 
-    <!-- ── Map ─────────────────────────────────── -->
+    <!-- Map -->
     <main class="map-container">
       <div id="map"></div>
 
@@ -49,16 +49,16 @@
         </div>
 
         <div class="tracking-url-box">
-          <label🔗 Tracking URL — send this to the target</label>
+          <label>🔗 Tracking URL — send this to the target</label>
           <div class="url-row">
             <input type="text" id="trackingUrl" readonly />
-            <button class="btn btn-sm btn-ghost" id="copyUrlBtn">📋 Copy</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="copyUrlBtn">📋 Copy</button>
           </div>
         </div>
 
         <div class="panel-actions">
-          <button class="btn btn-sm btn-ghost" id="toggleBtn">⏸ Pause</button>
-          <button class="btn btn-sm btn-danger" id="deleteBtn">🗑 Delete</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="toggleBtn">⏸ Pause</button>
+          <button type="button" class="btn btn-sm btn-danger" id="deleteBtn">🗑 Delete</button>
         </div>
 
         <div class="location-history" id="locationHistory">
@@ -74,10 +74,22 @@
   <!-- Toast -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- Scripts -->
+  <!-- Loading indicator -->
+  <div id="loadingOverlay" style="
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(15,15,26,0.95); z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px; color: #00d4ff;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  ">
+    <div style="font-size: 2rem;">📡</div>
+    <div>Connecting to database...</div>
+  </div>
+
+  <!-- Scripts — note the ./ prefix for relative paths -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js"></script>
-  <script src="js/dashboard.js"></script>
+  <script src="./js/config.js"></script>
+  <script src="./js/dashboard.js"></script>
 </body>
 </html>
